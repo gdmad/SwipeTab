@@ -18,14 +18,15 @@ is what tells a gesture apart from text selection.
 Direction is read from the dominant axis, so you don't need to drag perfectly straight.
 An offset under 40 px doesn't count as a gesture, so a shaky hand is safe.
 
-While you hold, a progress ring grows at the cursor; when the hold is registered it
-snaps into a ring with four arrows. A dot inside the ring follows the cursor, a dashed
-circle marks the threshold, and the sector of the current direction glows. Crossing the
-threshold gives a small pulse — releasing then fires the action, and the icon plays its
-own exit animation. A cancel icon (⊘) at the center is visible whenever no direction is
-committed yet; releasing there cancels the gesture. The ring is pulled inside the window
-when you press near an edge. Right-clicking a link pops up a small badge confirming it
-opened in a background tab.
+Once the hold is registered, a ring with four arrows pops up at the cursor and tilts in
+3D toward the direction you drag. The sector of the current direction glows and its
+arrow and icon grow as you approach the threshold; entering the sector at full distance
+gives a short pulse — releasing then fires the action, and the icon plays its own exit
+animation. To cancel, release at the ring center (the ⊘ icon there is fully visible
+whenever no direction is committed) **or in any diagonal between two directions**: the
+diagonals are cancel zones, marked by small ⊘ signs, so you don't have to drag back to
+the center. The ring is pulled inside the window when you press near an edge.
+Right-clicking a link pops up a small badge confirming it opened in a background tab.
 
 Normal page behavior is preserved: clicks on links and buttons still work, a quick
 press-and-drag still selects text, and the gesture never triggers inside input fields.
@@ -90,12 +91,10 @@ in the "Config" block. Reload the extension in `about:debugging` after editing.
 - `INDICATOR_AT_CURSOR` — show the ring at the cursor (`true`) or centered on the window
   (`false`).
 - `ARROW_W` / `ARROW_H` — arrow dimensions.
-- `PROGRESS_DELAY_MS` — delay before the hold-progress ring appears.
 - `CLAMP_TO_VIEWPORT` / `CLAMP_MARGIN_PX` — keep the ring inside the window.
-- `PUCK`, `THRESHOLD_GUIDE`, `SECTOR_GLOW`, `ACTION_ANIM` — ring extras, each can be
-  turned off on its own.
-- `AXIS_HYSTERESIS` — how much the other axis must lead to take over near a diagonal
-  (`0` disables it).
+- `ACTION_HALF_DEG` — half-width of each action sector; what is left on the diagonals
+  cancels (`30` → 60° actions, 30° cancel zones).
+- `SECTOR_GLOW`, `ACTION_ANIM` — ring extras, each can be turned off on its own.
 - `DEBUG` — log the offset and recognized direction to the page console.
 
 To open links directly in the active tab instead of the background, see `FOCUS_NEW_TAB`

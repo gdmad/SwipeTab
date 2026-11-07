@@ -18,23 +18,17 @@
   // Log the offset and recognized direction to the console instead of acting.
   const DEBUG = false;
 
-  // Hold feedback: a progress ring shows up after this delay (so plain clicks stay
-  // clean) and fills until the gesture arms.
-  const PROGRESS_DELAY_MS = 70;
   // Keep the ring fully inside the window when pressed near an edge (prototype).
   const CLAMP_TO_VIEWPORT = true;
   const CLAMP_MARGIN_PX = 100;
+  // Half-width of each action sector around its axis. The rest (the diagonals,
+  // 90 - 2 * ACTION_HALF_DEG degrees wide) cancels the gesture on release.
+  const ACTION_HALF_DEG = 30;
   // Ring extras; each one can be switched off on its own.
-  // A dot inside the ring that follows the cursor with a springy limit.
-  const PUCK = true;
-  // A dashed circle at the threshold distance plus a tether from the center.
-  const THRESHOLD_GUIDE = true;
-  // A soft glow over the whole 90° sector of the current direction.
+  // A soft glow over the sector of the current direction.
   const SECTOR_GLOW = true;
   // A distinct finishing animation per action instead of one shared pulse.
   const ACTION_ANIM = true;
-  // Extra lead the other axis needs to take over near a diagonal (0 = off).
-  const AXIS_HYSTERESIS = 0.15;
   // ────────────────────────────────────────────────────────────────────────────
 
   const LEFT_BUTTON = 0;
@@ -50,10 +44,6 @@
   let armed = null;
   let holdTimer = 0;
   let suppressClick = false;
-  let progressTimer = 0;
-  let progressShown = false;
-  let crossed = false;
-  let currentAxis = null;
 
   function linkUnder(target) {
     const el = target instanceof Element ? target : target?.parentElement;
@@ -117,8 +107,7 @@
 
   function reset() {
     clearTimeout(holdTimer);
-    clearTimeout(progressTimer);
-    if (armed || progressShown) hideRing();
+    if (armed) hideRing();
     pending = null;
     armed = null;
   }
@@ -130,17 +119,13 @@
     pressTarget = event.target;
     pending = { x: event.clientX, y: event.clientY };
     holdTimer = setTimeout(arm, HOLD_MS);
-    progressTimer = setTimeout(() => pending && startProgress(pending.x, pending.y), PROGRESS_DELAY_MS);
   }
 
   function arm() {
     if (!pending) return;
 
-    clearTimeout(progressTimer);
     armed = pending;
     pending = null;
-    crossed = false;
-    currentAxis = null;
     // Keep the selection when the hold started on it, so selected text can still be
     // grabbed; clear it otherwise, since the gesture would leave it half-extended.
     const selection = window.getSelection();
@@ -157,23 +142,24 @@
     return false;
   }
 
-  // Dominant axis of movement — ignores the threshold, used only for highlighting.
+  // Dominant axis of movement — ignores the threshold and the diagonal zones.
   function axisOf(dx, dy) {
-    let vertical = Math.abs(dy) >= Math.abs(dx);
-    if (AXIS_HYSTERESIS && currentAxis) {
-      // Stay on the current axis until the other one leads by a clear margin.
-      const wasVertical = currentAxis === "up" || currentAxis === "down";
-      const [kept, other] = wasVertical ? [Math.abs(dy), Math.abs(dx)] : [Math.abs(dx), Math.abs(dy)];
-      const switches = other > kept * (1 + AXIS_HYSTERESIS);
-      vertical = wasVertical !== switches;
-    }
-    if (vertical) return dy < 0 ? "up" : "down";
+    if (Math.abs(dy) >= Math.abs(dx)) return dy < 0 ? "up" : "down";
     return dx < 0 ? "left" : "right";
   }
 
-  // Gesture direction from cursor offset; null while the offset is below threshold.
-  function directionOf(dx, dy) {
+  // How far the offset points away from its nearest axis, in degrees (0..45).
+  function deviationOf(dx, dy) {
+    const a = Math.abs(dx);
+    const b = Math.abs(dy);
+    return (Math.atan2(Math.min(a, b), Math.max(a, b)) * 180) / Math.PI;
+  }
+
+  // Gesture from cursor offset: null below the threshold, "cancel" in a diagonal
+  // zone, otherwise the direction.
+  function directionAt(dx, dy) {
     if (Math.hypot(dx, dy) < GESTURE_MIN_PX) return null;
+    if (deviationOf(dx, dy) > ACTION_HALF_DEG) return "cancel";
     return axisOf(dx, dy);
   }
 
@@ -199,11 +185,11 @@
 
     const dx = event.clientX - gesture.x;
     const dy = event.clientY - gesture.y;
-    const direction = directionOf(dx, dy);
+    const direction = directionAt(dx, dy);
 
     if (DEBUG) console.debug("SwipeTab", { dx: Math.round(dx), dy: Math.round(dy), direction });
 
-    if (!direction) {
+    if (!direction || direction === "cancel") {
       hideRing();
       return;
     }
@@ -306,11 +292,11 @@
       '<path d="M14 4h6v6"/><path d="M20 4l-9 9"/><path d="M18 13v5a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h5"/>'
   };
 
-  function dualToneIcon(paths) {
+  function dualToneIcon(paths, size = 20) {
     const layer = (stroke, width) =>
       `<g fill="none" stroke="${stroke}" stroke-width="${width}" stroke-linecap="round" stroke-linejoin="round">${paths}</g>`;
     return (
-      '<svg viewBox="0 0 24 24" width="20" height="20">' +
+      `<svg viewBox="0 0 24 24" width="${size}" height="${size}">` +
       layer(ICON_OUTLINE, ICON_OUTLINE_WIDTH) +
       layer(ICON_CORE, ICON_CORE_WIDTH) +
       "</svg>"
@@ -332,8 +318,56 @@
     left:  { x: -82, y: 0 }
   };
 
-  const ARC_LEN = (2 * Math.PI * 58).toFixed(1);
-  const PUCK_MAX_PX = GESTURE_MIN_PX + 12;
+  // Small cancel marks on the diagonals, outside the ring like the action icons.
+  const MARK_SIZE = 14;
+  const MARKS = [
+    { sx: -1, sy: -1 },
+    { sx: 1, sy: -1 },
+    { sx: 1, sy: 1 },
+    { sx: -1, sy: 1 }
+  ];
+  const MARK_OFFSET = 58;
+  const CENTER_ICON_SIZE = 40;
+  const SECTOR_ANGLE = { up: -90, right: 0, down: 90, left: 180 };
+  const SECTOR_INNER = 26;
+  const SECTOR_OUTER = 60;
+
+  const polar = (r, deg) => {
+    const a = (deg * Math.PI) / 180;
+    return `${(r * Math.cos(a)).toFixed(2)} ${(r * Math.sin(a)).toFixed(2)}`;
+  };
+
+  // A ring sector: a gradient fill fading in toward the rim plus a bright rim arc.
+  function sectorSvg(theme) {
+    const sectors = Object.entries(SECTOR_ANGLE)
+      .map(([dir, center]) => {
+        const a0 = center - ACTION_HALF_DEG;
+        const a1 = center + ACTION_HALF_DEG;
+        const body =
+          `M${polar(SECTOR_INNER, a0)} L${polar(SECTOR_OUTER, a0)} ` +
+          `A${SECTOR_OUTER} ${SECTOR_OUTER} 0 0 1 ${polar(SECTOR_OUTER, a1)} ` +
+          `L${polar(SECTOR_INNER, a1)} A${SECTOR_INNER} ${SECTOR_INNER} 0 0 0 ${polar(SECTOR_INNER, a0)}Z`;
+        const rim =
+          `M${polar(SECTOR_OUTER - 1.5, a0 + 3)} ` +
+          `A${SECTOR_OUTER - 1.5} ${SECTOR_OUTER - 1.5} 0 0 1 ${polar(SECTOR_OUTER - 1.5, a1 - 3)}`;
+        return (
+          `<g data-dir="${dir}" style="opacity:0;transition:opacity .1s">` +
+          `<path d="${body}" fill="url(#sector-fill)"/>` +
+          `<path d="${rim}" fill="none" stroke="${theme.accent}" stroke-width="2.5" stroke-linecap="round"/>` +
+          "</g>"
+        );
+      })
+      .join("");
+    return (
+      '<svg viewBox="-62 -62 124 124" width="124" height="124" style="position:absolute;left:0;top:0">' +
+      '<defs><radialGradient id="sector-fill" cx="0" cy="0" r="60" gradientUnits="userSpaceOnUse">' +
+      `<stop offset=".4" stop-color="${theme.accent}" stop-opacity="0"/>` +
+      `<stop offset="1" stop-color="${theme.accent}" stop-opacity=".4"/>` +
+      "</radialGradient></defs>" +
+      sectors +
+      "</svg>"
+    );
+  }
   const DARK_MQ = window.matchMedia("(prefers-color-scheme: dark)");
 
   let ui = null;
@@ -363,43 +397,14 @@
       "transition:transform .08s linear"
     ].join(";");
 
-    const accentSoft = accentWithAlpha(theme.accent, 0.4);
-    let glow = null;
+    let glows = null;
     if (SECTOR_GLOW) {
-      glow = document.createElement("div");
-      glow.style.cssText =
-        "position:absolute;inset:0;border-radius:50%;opacity:0;transition:opacity .1s";
-      ring.appendChild(glow);
-    }
-
-    let guideLine = null;
-    if (THRESHOLD_GUIDE) {
       const holder = document.createElement("div");
-      holder.innerHTML =
-        '<svg viewBox="-62 -62 124 124" width="124" height="124" style="position:absolute;left:0;top:0">' +
-        `<circle r="${GESTURE_MIN_PX}" fill="none" stroke="${theme.dim}" stroke-width="1.2" stroke-dasharray="3 4"/>` +
-        `<line x1="0" y1="0" x2="0" y2="0" stroke="${accentSoft}" stroke-width="1.5" stroke-linecap="round"/>` +
-        "</svg>";
-      ring.appendChild(holder.firstElementChild);
-      guideLine = ring.lastElementChild.querySelector("line");
-    }
-
-    let puck = null;
-    if (PUCK) {
-      puck = document.createElement("div");
-      puck.style.cssText = [
-        "position:absolute",
-        "left:50%",
-        "top:50%",
-        "width:8px",
-        "height:8px",
-        "margin:-4px 0 0 -4px",
-        "border-radius:50%",
-        `background:${theme.accent}`,
-        `box-shadow:0 0 0 1.5px rgba(0,0,0,.45),0 0 8px ${accentSoft}`,
-        "transition:scale .1s"
-      ].join(";");
-      ring.appendChild(puck);
+      holder.innerHTML = sectorSvg(theme);
+      const svg = holder.firstElementChild;
+      ring.appendChild(svg);
+      glows = {};
+      for (const g of svg.querySelectorAll("g[data-dir]")) glows[g.dataset.dir] = g;
     }
 
     const arrows = {};
@@ -440,17 +445,33 @@
     }
 
     const cancelWrap = document.createElement("div");
-    cancelWrap.innerHTML = dualToneIcon(ICON_PATHS.cancel);
+    cancelWrap.innerHTML = dualToneIcon(ICON_PATHS.cancel, CENTER_ICON_SIZE);
     const cancelIcon = cancelWrap.firstElementChild;
     cancelIcon.style.cssText = [
       "position:absolute",
       "left:50%",
       "top:50%",
-      "margin-left:-10px",
-      "margin-top:-10px",
+      `margin-left:-${CENTER_ICON_SIZE / 2}px`,
+      `margin-top:-${CENTER_ICON_SIZE / 2}px`,
       "transition:opacity .1s,transform .1s"
     ].join(";");
     ring.appendChild(cancelIcon);
+
+    const marks = MARKS.map(({ sx, sy }) => {
+      const holder = document.createElement("div");
+      holder.innerHTML = dualToneIcon(ICON_PATHS.cancel, MARK_SIZE);
+      const el = holder.firstElementChild;
+      el.style.cssText = [
+        "position:absolute",
+        "left:50%",
+        "top:50%",
+        `margin-left:-${MARK_SIZE / 2}px`,
+        `margin-top:-${MARK_SIZE / 2}px`,
+        "transition:opacity .1s,transform .1s"
+      ].join(";");
+      ring.appendChild(el);
+      return { el, sx, sy };
+    });
 
     // Link-open confirmation badge — a separate element from the gesture ring
     // (smaller, instant), so it doesn't collide with the ring's own animation.
@@ -470,31 +491,10 @@
     ].join(";");
     confirm.innerHTML = dualToneIcon(ICON_PATHS.open);
 
-    // Hold-progress ring: same geometry as the ring, so the hand-over is seamless.
-    const progress = document.createElement("div");
-    progress.style.cssText = [
-      "position:absolute",
-      "left:-62px",
-      "top:-62px",
-      "width:124px",
-      "height:124px",
-      "border-radius:50%",
-      `background:${theme.ringBg}`,
-      `border:1px solid ${theme.ringBorder}`,
-      `box-shadow:${theme.ringShadow}`,
-      "opacity:0"
-    ].join(";");
-    progress.innerHTML =
-      '<svg viewBox="0 0 124 124" width="124" height="124" style="position:absolute;left:0;top:0">' +
-      `<circle cx="62" cy="62" r="58" fill="none" stroke="${theme.accent}" stroke-width="3" stroke-linecap="round" ` +
-      `stroke-dasharray="${ARC_LEN}" stroke-dashoffset="${ARC_LEN}" transform="rotate(-90 62 62)"/>` +
-      "</svg>";
-    const progressArc = progress.querySelector("circle");
-
-    root.append(progress, ring, confirm);
+    root.append(ring, confirm);
     (document.body || document.documentElement).appendChild(wrap);
 
-    return { wrap, root, ring, arrows, icons, cancelIcon, confirm, progress, progressArc, glow, guideLine, puck, glowAxis: null };
+    return { wrap, root, ring, arrows, icons, cancelIcon, marks, glows, confirm };
   }
 
   function ensureUi() {
@@ -503,7 +503,7 @@
   }
 
   // Pulls the ring center inside the window; the gesture itself is still measured
-  // from the press point, the puck shows the offset relative to the ring center.
+  // from the press point.
   function clampCenter(v, size) {
     const lo = Math.min(CLAMP_MARGIN_PX, size / 2);
     const hi = Math.max(size - CLAMP_MARGIN_PX, size / 2);
@@ -527,47 +527,12 @@
     return THEMES[DARK_MQ.matches ? "dark" : "light"];
   }
 
-  function startProgress(x, y) {
-    if (!SHOW_INDICATOR) return;
-
-    clearTimeout(hideTimer);
-    const { wrap, ring, confirm, progress, progressArc } = placeAt(x, y, true);
-    ring.style.opacity = "0";
-    confirm.style.opacity = "0";
-    progress.style.opacity = "1";
-    wrap.style.opacity = "1";
-    progressShown = true;
-
-    const duration = Math.max(HOLD_MS - PROGRESS_DELAY_MS, 1);
-    progress.animate(
-      [
-        { transform: "scale(.32)", opacity: 0.4 },
-        { transform: "scale(1)", opacity: 1 }
-      ],
-      { duration, easing: "ease-out", fill: "both" }
-    );
-    progressArc.animate(
-      [{ strokeDashoffset: `${ARC_LEN}px` }, { strokeDashoffset: "0px" }],
-      { duration, easing: "linear", fill: "both" }
-    );
-  }
-
-  function stopProgress() {
-    progressShown = false;
-    if (!ui) return;
-
-    ui.progress.getAnimations().forEach((a) => a.cancel());
-    ui.progressArc.getAnimations().forEach((a) => a.cancel());
-    ui.progress.style.opacity = "0";
-  }
-
   function showRing(x, y) {
     if (!SHOW_INDICATOR) return;
 
     clearTimeout(hideTimer);
 
     const { wrap, ring, confirm, arrows } = placeAt(x, y, true);
-    stopProgress();
     ring.style.opacity = "1";
     // The link-open badge lives in the same wrap — hide it so it can't leak into a gesture.
     confirm.style.opacity = "0";
@@ -642,55 +607,57 @@
   }
 
   // Cancel icon at ring center: fully visible while the cursor is near the start
-  // point, fading out as it approaches the gesture recognition threshold.
-  function paintCancel(progress) {
-    const opacity = Math.max(0, 1 - progress);
+  // point, fading out as it approaches an action; in a diagonal zone it stays up.
+  function paintCancel(progress, inZone) {
+    const opacity = inZone ? 1 : Math.max(0, 1 - progress);
+    const scale = inZone ? 1.15 : 1 - 0.45 * progress;
     ui.cancelIcon.style.opacity = opacity.toFixed(2);
-    ui.cancelIcon.style.transform = `scale(${(1 - 0.45 * progress).toFixed(3)})`;
+    ui.cancelIcon.style.transform = `scale(${scale.toFixed(3)})`;
   }
 
-  function sectorGradient(axis) {
-    const from = { up: -45, right: 45, down: 135, left: 225 }[axis];
-    const c = accentWithAlpha(currentTheme().accent, 0.45);
-    return `conic-gradient(from ${from}deg, transparent 0deg, ${c} 30deg, ${c} 60deg, transparent 90deg, transparent 360deg)`;
+  // The cancel mark in the quadrant the cursor is in lights up; the others stay dim.
+  function paintMarks(lit) {
+    for (const { el, sx, sy } of ui?.marks ?? []) {
+      const on = lit && lit.sx === sx && lit.sy === sy;
+      el.style.opacity = on ? 1 : 0.3;
+      el.style.transform =
+        `translate(${sx * MARK_OFFSET}px,${sy * MARK_OFFSET}px) scale(${on ? 1.3 : 0.9})`;
+    }
   }
 
   function paintGlow(axis, progress) {
-    if (!ui.glow) return;
-    if (axis && axis !== ui.glowAxis) {
-      ui.glow.style.background = sectorGradient(axis);
-      ui.glowAxis = axis;
-    }
-    ui.glow.style.opacity = axis ? progress.toFixed(2) : "0";
-  }
-
-  // Beyond the threshold the dot slows down and saturates a little further out.
-  function squash(r) {
-    if (r <= GESTURE_MIN_PX) return r;
-    return GESTURE_MIN_PX + (PUCK_MAX_PX - GESTURE_MIN_PX) * (1 - Math.exp(-(r - GESTURE_MIN_PX) / 30));
-  }
-
-  function paintPointer(dx, dy, progress) {
-    const dist = Math.hypot(dx, dy);
-    const k = dist > 0 ? squash(dist) / dist : 0;
-    const px = (dx * k).toFixed(1);
-    const py = (dy * k).toFixed(1);
-    if (ui.puck) {
-      ui.puck.style.transform = `translate(${px}px,${py}px)`;
-      ui.puck.style.scale = progress >= 1 ? "1.5" : "1";
-    }
-    if (ui.guideLine) {
-      ui.guideLine.setAttribute("x2", px);
-      ui.guideLine.setAttribute("y2", py);
+    if (!ui.glows) return;
+    for (const [dir, g] of Object.entries(ui.glows)) {
+      g.style.opacity = dir === axis ? progress.toFixed(2) : "0";
     }
   }
 
-  // One-shot bump when the cursor crosses the threshold: "you can release now".
-  function pulseThreshold(axis) {
-    const bump = { duration: 170, easing: "ease-out" };
-    ui.arrows[axis].animate([{ scale: 1 }, { scale: 1.35 }, { scale: 1 }], bump);
-    ui.icons[axis].animate([{ scale: 1 }, { scale: 1.4 }, { scale: 1 }], bump);
-    ui.ring.animate([{ scale: 1 }, { scale: 1.05 }, { scale: 1 }], bump);
+  // One-shot emphasis when the cursor enters an action sector at full distance:
+  // "you can release now". Arrow and icon swell, and a wave leaves the ring rim.
+  function pulseEntry(axis) {
+    const bump = { duration: 240, easing: "ease-out" };
+    ui.arrows[axis].animate([{ scale: 1 }, { scale: 1.8 }, { scale: 1 }], bump);
+    ui.icons[axis].animate([{ scale: 1 }, { scale: 1.7 }, { scale: 1 }], bump);
+
+    const wave = document.createElement("div");
+    wave.style.cssText = [
+      "position:absolute",
+      "left:-62px",
+      "top:-62px",
+      "width:124px",
+      "height:124px",
+      "box-sizing:border-box",
+      "border-radius:50%",
+      `border:2px solid ${currentTheme().accent}`
+    ].join(";");
+    ui.root.appendChild(wave);
+    wave.animate(
+      [
+        { transform: "scale(1)", opacity: 0.55 },
+        { transform: "scale(1.38)", opacity: 0 }
+      ],
+      { duration: 340, easing: "ease-out" }
+    ).onfinish = () => wave.remove();
   }
 
   function updateVisual(dx, dy) {
@@ -698,8 +665,9 @@
 
     const dist = Math.hypot(dx, dy);
     const axis = axisOf(dx, dy);
-    currentAxis = axis;
-    const progress = Math.min(dist / GESTURE_MIN_PX, 1);
+    const diagonal = deviationOf(dx, dy) > ACTION_HALF_DEG;
+    const progress = diagonal ? 0 : Math.min(dist / GESTURE_MIN_PX, 1);
+    const inZone = diagonal && dist >= GESTURE_MIN_PX;
 
     if (dist > 0) {
       // A gentle tilt as a single rotation around the axis perpendicular to the
@@ -719,17 +687,13 @@
 
     paintArrows(axis, progress);
     paintIcons(axis, progress);
-    paintCancel(progress);
+    paintCancel(progress, inZone);
     paintGlow(axis, progress);
-    paintPointer(dx, dy, progress);
+    paintMarks(inZone ? { sx: Math.sign(dx), sy: Math.sign(dy) } : null);
 
-    if (progress >= 1) {
-      if (!crossed) pulseThreshold(axis);
-      crossed = true;
-    } else {
-      crossed = false;
-    }
-    activeDirection = progress >= 1 ? axis : null;
+    const next = progress >= 1 ? axis : null;
+    if (next && next !== activeDirection) pulseEntry(next);
+    activeDirection = next;
   }
 
   function highlight(direction) {
@@ -739,9 +703,9 @@
     ui.ring.style.transform = "";
     paintArrows(direction, direction ? 1 : 0);
     paintIcons(direction, direction ? 1 : 0);
-    paintCancel(direction ? 1 : 0);
+    paintCancel(direction ? 1 : 0, false);
     paintGlow(direction, direction ? 1 : 0);
-    paintPointer(0, 0, 0);
+    paintMarks(null);
   }
 
   function hideRing() {
@@ -752,10 +716,9 @@
     // The ring is already invisible, so reset its transform right away — otherwise
     // the next gesture would start by "flying in" from the previous position.
     ui.ring.style.transform = "";
-    stopProgress();
     currentTilt = 0;
     activeDirection = null;
-    crossed = false;
+    paintMarks(null);
   }
 
   // The gesture fired: the ring collapses; the chosen icon plays its own exit.
