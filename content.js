@@ -21,9 +21,17 @@
   // Keep the ring fully inside the window when pressed near an edge (prototype).
   const CLAMP_TO_VIEWPORT = true;
   const CLAMP_MARGIN_PX = 100;
-  // Half-width of each action sector around its axis. The rest (the diagonals,
-  // 90 - 2 * ACTION_HALF_DEG degrees wide) cancels the gesture on release.
-  const ACTION_HALF_DEG = 30;
+  // Action sectors: center angle (degrees clockwise from "up") and half-width.
+  // Releasing anywhere outside them (or near the ring center) cancels the gesture.
+  // Close is the widest, tab switching next, the three on the right are equal.
+  const SECTORS = [
+    { name: "up", center: 0, half: 30 },
+    { name: "upright", center: 50, half: 20 },
+    { name: "right", center: 90, half: 20 },
+    { name: "downright", center: 130, half: 20 },
+    { name: "down", center: 180, half: 30 },
+    { name: "left", center: 270, half: 40 }
+  ];
   // Ring extras; each one can be switched off on its own.
   // A distinct finishing animation per action instead of one shared pulse.
   const ACTION_ANIM = true;
@@ -140,25 +148,21 @@
     return false;
   }
 
-  // Dominant axis of movement — ignores the threshold and the diagonal zones.
-  function axisOf(dx, dy) {
-    if (Math.abs(dy) >= Math.abs(dx)) return dy < 0 ? "up" : "down";
-    return dx < 0 ? "left" : "right";
+  // Name of the action sector the offset points into, or null between sectors.
+  function sectorAt(dx, dy) {
+    const angle = ((Math.atan2(dx, -dy) * 180) / Math.PI + 360) % 360;
+    for (const { name, center, half } of SECTORS) {
+      const diff = Math.abs(((angle - center + 540) % 360) - 180);
+      if (diff <= half) return name;
+    }
+    return null;
   }
 
-  // How far the offset points away from its nearest axis, in degrees (0..45).
-  function deviationOf(dx, dy) {
-    const a = Math.abs(dx);
-    const b = Math.abs(dy);
-    return (Math.atan2(Math.min(a, b), Math.max(a, b)) * 180) / Math.PI;
-  }
-
-  // Gesture from cursor offset: null below the threshold, "cancel" in a diagonal
-  // zone, otherwise the direction.
+  // Gesture from cursor offset: null below the threshold, "cancel" between
+  // sectors, otherwise the sector name.
   function directionAt(dx, dy) {
     if (Math.hypot(dx, dy) < GESTURE_MIN_PX) return null;
-    if (deviationOf(dx, dy) > ACTION_HALF_DEG) return "cancel";
-    return axisOf(dx, dy);
+    return sectorAt(dx, dy) ?? "cancel";
   }
 
   function onMouseMove(event) {
@@ -173,6 +177,15 @@
     if (!armed) return;
     updateVisual(event.clientX - armed.x, event.clientY - armed.y);
   }
+
+  const ACTION_MESSAGES = {
+    up: ["switchTab", { dir: -1 }],
+    down: ["switchTab", { dir: 1 }],
+    left: ["closeTab", {}],
+    right: ["undoCloseTab", {}],
+    upright: ["reloadTab", {}],
+    downright: ["duplicateTab", {}]
+  };
 
   function onMouseUp(event) {
     if (event.button !== LEFT_BUTTON) return;
@@ -195,12 +208,8 @@
     suppressClick = true;
     resolveRing(direction);
 
-    if (direction === "up" || direction === "down") {
-      send("switchTab", { dir: direction === "up" ? -1 : 1 });
-      return;
-    }
-
-    send(direction === "left" ? "closeTab" : "undoCloseTab", {});
+    const [type, payload] = ACTION_MESSAGES[direction];
+    send(type, payload);
   }
 
   // The right button (two-finger click on a trackpad) is only handled over links.
@@ -236,13 +245,20 @@
   // A ring with arrows at the cursor: shows that a gesture is armed and highlights
   // the direction before the button is released — you can see what's about to happen.
 
-  // One triangle geometry, rotated four ways.
-  const ARROWS = {
-    up: { x: 0, y: -38, rotate: 0 },
-    right: { x: 38, y: 0, rotate: 90 },
-    down: { x: 0, y: 38, rotate: 180 },
-    left: { x: -38, y: 0, rotate: 270 }
-  };
+  const polar = (radius, deg) => ({
+    x: +(radius * Math.sin((deg * Math.PI) / 180)).toFixed(2),
+    y: +(-radius * Math.cos((deg * Math.PI) / 180)).toFixed(2)
+  });
+
+  // One triangle pointing outward per sector; narrow sectors get a narrower arrow so
+  // neighbours don't overlap.
+  const NARROW_ARROW_W = 20;
+  const ARROWS = Object.fromEntries(
+    SECTORS.map(({ name, center, half }) => [
+      name,
+      { ...polar(38, center), rotate: center, w: half >= 30 ? ARROW_W : NARROW_ARROW_W }
+    ])
+  );
 
   // Palettes for the browser's dark and light themes. Switched by subscribing to
   // prefers-color-scheme; the bubble is fully rebuilt when the theme changes.
@@ -283,6 +299,10 @@
       '<line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/>',
     restore:
       '<path d="M9 14L4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5 5.5 5.5 0 0 1-5.5 5.5H11"/>',
+    reload:
+      '<path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/>',
+    duplicate:
+      '<rect x="8" y="8" width="13" height="13" rx="2"/><path d="M4 16a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2"/>',
     // Circle with a slash — "nothing will happen here", for the safe zone at ring center.
     cancel: '<circle cx="12" cy="12" r="7"/><line x1="7" y1="17" x2="17" y2="7"/>',
     // Arrow escaping a box — the standard "open link" glyph.
@@ -301,20 +321,18 @@
     );
   }
 
-  // Which icon goes with which direction: up/down — tab, left — close, right — restore.
+  // Which icon goes with which sector: up/down — tab, left — close, right — restore,
+  // upper right — reload, lower right — duplicate.
   const ICONS_MAP = {
     up: dualToneIcon(ICON_PATHS.tab),
     down: dualToneIcon(ICON_PATHS.tab),
     left: dualToneIcon(ICON_PATHS.close),
-    right: dualToneIcon(ICON_PATHS.restore)
+    right: dualToneIcon(ICON_PATHS.restore),
+    upright: dualToneIcon(ICON_PATHS.reload),
+    downright: dualToneIcon(ICON_PATHS.duplicate)
   };
 
-  const ICON_POS = {
-    up:    { x: 0, y: -82 },
-    right: { x: 82, y: 0 },
-    down:  { x: 0, y: 82 },
-    left:  { x: -82, y: 0 }
-  };
+  const ICON_POS = Object.fromEntries(SECTORS.map(({ name, center }) => [name, polar(82, center)]));
 
   const CENTER_ICON_SIZE = 40;
   const DARK_MQ = window.matchMedia("(prefers-color-scheme: dark)");
@@ -347,7 +365,7 @@
     ].join(";");
 
     const arrows = {};
-    for (const dir of Object.keys(ARROWS)) {
+    for (const [dir, { w }] of Object.entries(ARROWS)) {
       const arrow = document.createElement("div");
       arrow.style.cssText = [
         "position:absolute",
@@ -355,8 +373,8 @@
         "top:50%",
         "width:0",
         "height:0",
-        `border-left:${ARROW_W / 2}px solid transparent`,
-        `border-right:${ARROW_W / 2}px solid transparent`,
+        `border-left:${w / 2}px solid transparent`,
+        `border-right:${w / 2}px solid transparent`,
         `border-bottom:${ARROW_H}px solid ${theme.dim}`,
         "transition:border-bottom-color .1s,transform .1s"
       ].join(";");
@@ -570,10 +588,9 @@
     if (!SHOW_INDICATOR || !ui) return;
 
     const dist = Math.hypot(dx, dy);
-    const axis = axisOf(dx, dy);
-    const diagonal = deviationOf(dx, dy) > ACTION_HALF_DEG;
-    const progress = diagonal ? 0 : Math.min(dist / GESTURE_MIN_PX, 1);
-    const inZone = diagonal && dist >= GESTURE_MIN_PX;
+    const axis = sectorAt(dx, dy);
+    const progress = axis ? Math.min(dist / GESTURE_MIN_PX, 1) : 0;
+    const inZone = !axis && dist >= GESTURE_MIN_PX;
 
     if (dist > 0) {
       // A gentle tilt as a single rotation around the axis perpendicular to the
@@ -667,6 +684,16 @@
       frames = [
         { transform: at(0, 1.25, 0), opacity: 1 },
         { transform: at(0, 0, 90), opacity: 0 }
+      ];
+    } else if (direction === "upright") {
+      frames = [
+        { transform: at(0, 1.25, 0), opacity: 1 },
+        { transform: at(0, 1.5, 360), opacity: 0 }
+      ];
+    } else if (direction === "downright") {
+      frames = [
+        { transform: at(0, 1.25, 0), opacity: 1 },
+        { transform: `translate(${x + 18}px,${y + 18}px) scale(1.5)`, opacity: 0 }
       ];
     } else {
       frames = [

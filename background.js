@@ -40,6 +40,15 @@ async function undoCloseTab() {
   await browser.sessions.restore();
 }
 
+async function reloadTab(sender) {
+  await browser.tabs.reload(sender.tab.id);
+}
+
+// The copy opens next to the current tab without stealing focus, like a link opened in the background.
+async function duplicateTab(sender) {
+  await browser.tabs.duplicate(sender.tab.id, { active: false, index: sender.tab.index + 1 });
+}
+
 async function openLink(sender, url) {
   // The content script lives in an untrusted page — re-check the scheme here too.
   if (!isAllowedUrl(url)) return;
@@ -62,6 +71,10 @@ browser.runtime.onMessage.addListener((message, sender) => {
       return closeTab(sender);
     case "undoCloseTab":
       return undoCloseTab();
+    case "reloadTab":
+      return reloadTab(sender);
+    case "duplicateTab":
+      return duplicateTab(sender);
     case "openLink":
       return openLink(sender, message.url);
   }

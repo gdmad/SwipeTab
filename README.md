@@ -13,19 +13,23 @@ is what tells a gesture apart from text selection.
 | Hold and drag down | Next tab (wraps around) |
 | Hold and drag left | Close the current tab and switch to the tab on its left |
 | Hold and drag right | Restore the last closed tab |
+| Hold and drag up-right | Reload the current tab |
+| Hold and drag down-right | Duplicate the tab (the copy opens next to it, in the background) |
 | Right-click a link (two-finger click on a trackpad) | Open the link in a new background tab |
 
-Direction is read from the dominant axis, so you don't need to drag perfectly straight.
-An offset under 40 px doesn't count as a gesture, so a shaky hand is safe.
+Each action owns a sector of the ring: close is the widest (80°), tab switching next
+(60° each), and restore, reload and duplicate share the right side in three equal 40°
+sectors, so you don't need to drag perfectly straight. An offset under 40 px doesn't
+count as a gesture, so a shaky hand is safe.
 
 Once the hold is registered, a ring with four arrows pops up at the cursor and tilts in
 3D toward the direction you drag. The arrow and icon of the current direction grow as
 you approach the threshold; entering the sector at full distance gives a short pulse —
 releasing then fires the action, and the icon plays its own exit animation. To cancel,
 release at the ring center (the ⊘ icon there is fully visible whenever no direction is
-committed) **or in any diagonal between two directions**: the diagonals are cancel
-zones, and the center icon stays bright and large while the cursor is in one, so you
-don't have to drag back to the middle. The ring is pulled inside the window when you
+committed) **or in the gaps between the left sectors**: those are cancel zones, and
+the center icon stays bright and large while the cursor is in one, so you don't have
+to drag back to the middle. The ring is pulled inside the window when you
 press near an edge. Right-clicking a link pops up a small badge confirming it opened in
 a background tab.
 
@@ -93,8 +97,8 @@ in the "Config" block. Reload the extension in `about:debugging` after editing.
   (`false`).
 - `ARROW_W` / `ARROW_H` — arrow dimensions.
 - `CLAMP_TO_VIEWPORT` / `CLAMP_MARGIN_PX` — keep the ring inside the window.
-- `ACTION_HALF_DEG` — half-width of each action sector; what is left on the diagonals
-  cancels (`30` → 60° actions, 30° cancel zones).
+- `SECTORS` — center angle and half-width of every action sector (degrees clockwise from
+  up); whatever the sectors leave uncovered cancels.
 - `ACTION_ANIM` — per-action exit animation instead of one shared pulse.
 - `DEBUG` — log the offset and recognized direction to the page console.
 
