@@ -17,6 +17,24 @@
   const ARROW_H = 12;
   // Log the offset and recognized direction to the console instead of acting.
   const DEBUG = false;
+
+  // Hold feedback: a progress ring shows up after this delay (so plain clicks stay
+  // clean) and fills until the gesture arms.
+  const PROGRESS_DELAY_MS = 70;
+  // Keep the ring fully inside the window when pressed near an edge (prototype).
+  const CLAMP_TO_VIEWPORT = true;
+  const CLAMP_MARGIN_PX = 100;
+  // Ring extras; each one can be switched off on its own.
+  // A dot inside the ring that follows the cursor with a springy limit.
+  const PUCK = true;
+  // A dashed circle at the threshold distance plus a tether from the center.
+  const THRESHOLD_GUIDE = true;
+  // A soft glow over the whole 90° sector of the current direction.
+  const SECTOR_GLOW = true;
+  // A distinct finishing animation per action instead of one shared pulse.
+  const ACTION_ANIM = true;
+  // Extra lead the other axis needs to take over near a diagonal (0 = off).
+  const AXIS_HYSTERESIS = 0.15;
   // ────────────────────────────────────────────────────────────────────────────
 
   const LEFT_BUTTON = 0;
@@ -32,6 +50,10 @@
   let armed = null;
   let holdTimer = 0;
   let suppressClick = false;
+  let progressTimer = 0;
+  let progressShown = false;
+  let crossed = false;
+  let currentAxis = null;
 
   function linkUnder(target) {
     const el = target instanceof Element ? target : target?.parentElement;
@@ -95,7 +117,8 @@
 
   function reset() {
     clearTimeout(holdTimer);
-    if (armed) hideRing();
+    clearTimeout(progressTimer);
+    if (armed || progressShown) hideRing();
     pending = null;
     armed = null;
   }
@@ -107,13 +130,17 @@
     pressTarget = event.target;
     pending = { x: event.clientX, y: event.clientY };
     holdTimer = setTimeout(arm, HOLD_MS);
+    progressTimer = setTimeout(() => pending && startProgress(pending.x, pending.y), PROGRESS_DELAY_MS);
   }
 
   function arm() {
     if (!pending) return;
 
+    clearTimeout(progressTimer);
     armed = pending;
     pending = null;
+    crossed = false;
+    currentAxis = null;
     // Keep the selection when the hold started on it, so selected text can still be
     // grabbed; clear it otherwise, since the gesture would leave it half-extended.
     const selection = window.getSelection();
@@ -132,7 +159,15 @@
 
   // Dominant axis of movement — ignores the threshold, used only for highlighting.
   function axisOf(dx, dy) {
-    if (Math.abs(dy) >= Math.abs(dx)) return dy < 0 ? "up" : "down";
+    let vertical = Math.abs(dy) >= Math.abs(dx);
+    if (AXIS_HYSTERESIS && currentAxis) {
+      // Stay on the current axis until the other one leads by a clear margin.
+      const wasVertical = currentAxis === "up" || currentAxis === "down";
+      const [kept, other] = wasVertical ? [Math.abs(dy), Math.abs(dx)] : [Math.abs(dx), Math.abs(dy)];
+      const switches = other > kept * (1 + AXIS_HYSTERESIS);
+      vertical = wasVertical !== switches;
+    }
+    if (vertical) return dy < 0 ? "up" : "down";
     return dx < 0 ? "left" : "right";
   }
 
@@ -174,7 +209,7 @@
     }
 
     suppressClick = true;
-    resolveRing();
+    resolveRing(direction);
 
     if (direction === "up" || direction === "down") {
       send("switchTab", { dir: direction === "up" ? -1 : 1 });
@@ -254,6 +289,8 @@
   const ICON_CORE = "rgb(255,255,255)";
   const ICON_OUTLINE_WIDTH = 3.4;
   const ICON_CORE_WIDTH = 1.7;
+  // Idle icons sit right on the page, so they must stay readable on mid-gray backgrounds.
+  const ICON_IDLE_ALPHA = 0.62;
 
   // Icon geometry, shared by both layers.
   const ICON_PATHS = {
@@ -295,6 +332,8 @@
     left:  { x: -82, y: 0 }
   };
 
+  const ARC_LEN = (2 * Math.PI * 58).toFixed(1);
+  const PUCK_MAX_PX = GESTURE_MIN_PX + 12;
   const DARK_MQ = window.matchMedia("(prefers-color-scheme: dark)");
 
   let ui = null;
@@ -321,8 +360,47 @@
       `background:${theme.ringBg}`,
       `border:1px solid ${theme.ringBorder}`,
       `box-shadow:${theme.ringShadow}`,
-      "transition:opacity .16s,transform .08s linear"
+      "transition:transform .08s linear"
     ].join(";");
+
+    const accentSoft = accentWithAlpha(theme.accent, 0.4);
+    let glow = null;
+    if (SECTOR_GLOW) {
+      glow = document.createElement("div");
+      glow.style.cssText =
+        "position:absolute;inset:0;border-radius:50%;opacity:0;transition:opacity .1s";
+      ring.appendChild(glow);
+    }
+
+    let guideLine = null;
+    if (THRESHOLD_GUIDE) {
+      const holder = document.createElement("div");
+      holder.innerHTML =
+        '<svg viewBox="-62 -62 124 124" width="124" height="124" style="position:absolute;left:0;top:0">' +
+        `<circle r="${GESTURE_MIN_PX}" fill="none" stroke="${theme.dim}" stroke-width="1.2" stroke-dasharray="3 4"/>` +
+        `<line x1="0" y1="0" x2="0" y2="0" stroke="${accentSoft}" stroke-width="1.5" stroke-linecap="round"/>` +
+        "</svg>";
+      ring.appendChild(holder.firstElementChild);
+      guideLine = ring.lastElementChild.querySelector("line");
+    }
+
+    let puck = null;
+    if (PUCK) {
+      puck = document.createElement("div");
+      puck.style.cssText = [
+        "position:absolute",
+        "left:50%",
+        "top:50%",
+        "width:8px",
+        "height:8px",
+        "margin:-4px 0 0 -4px",
+        "border-radius:50%",
+        `background:${theme.accent}`,
+        `box-shadow:0 0 0 1.5px rgba(0,0,0,.45),0 0 8px ${accentSoft}`,
+        "transition:scale .1s"
+      ].join(";");
+      ring.appendChild(puck);
+    }
 
     const arrows = {};
     for (const dir of Object.keys(ARROWS)) {
@@ -354,7 +432,7 @@
         "margin-left:-10px",
         "margin-top:-10px",
         `transform:translate(${pos.x}px,${pos.y}px)`,
-        "opacity:.34",
+        `opacity:${ICON_IDLE_ALPHA}`,
         "transition:opacity .1s,transform .1s"
       ].join(";");
       ring.appendChild(svg);
@@ -392,10 +470,31 @@
     ].join(";");
     confirm.innerHTML = dualToneIcon(ICON_PATHS.open);
 
-    root.append(ring, confirm);
+    // Hold-progress ring: same geometry as the ring, so the hand-over is seamless.
+    const progress = document.createElement("div");
+    progress.style.cssText = [
+      "position:absolute",
+      "left:-62px",
+      "top:-62px",
+      "width:124px",
+      "height:124px",
+      "border-radius:50%",
+      `background:${theme.ringBg}`,
+      `border:1px solid ${theme.ringBorder}`,
+      `box-shadow:${theme.ringShadow}`,
+      "opacity:0"
+    ].join(";");
+    progress.innerHTML =
+      '<svg viewBox="0 0 124 124" width="124" height="124" style="position:absolute;left:0;top:0">' +
+      `<circle cx="62" cy="62" r="58" fill="none" stroke="${theme.accent}" stroke-width="3" stroke-linecap="round" ` +
+      `stroke-dasharray="${ARC_LEN}" stroke-dashoffset="${ARC_LEN}" transform="rotate(-90 62 62)"/>` +
+      "</svg>";
+    const progressArc = progress.querySelector("circle");
+
+    root.append(progress, ring, confirm);
     (document.body || document.documentElement).appendChild(wrap);
 
-    return { wrap, ring, arrows, icons, cancelIcon, confirm };
+    return { wrap, root, ring, arrows, icons, cancelIcon, confirm, progress, progressArc, glow, guideLine, puck, glowAxis: null };
   }
 
   function ensureUi() {
@@ -403,11 +502,20 @@
     return ui;
   }
 
-  function placeAt(x, y) {
+  // Pulls the ring center inside the window; the gesture itself is still measured
+  // from the press point, the puck shows the offset relative to the ring center.
+  function clampCenter(v, size) {
+    const lo = Math.min(CLAMP_MARGIN_PX, size / 2);
+    const hi = Math.max(size - CLAMP_MARGIN_PX, size / 2);
+    return Math.min(Math.max(v, lo), hi);
+  }
+
+  function placeAt(x, y, clamp = false) {
     const { wrap } = ensureUi();
     if (INDICATOR_AT_CURSOR) {
-      wrap.style.left = `${x}px`;
-      wrap.style.top = `${y}px`;
+      const fit = clamp && CLAMP_TO_VIEWPORT;
+      wrap.style.left = `${fit ? clampCenter(x, window.innerWidth) : x}px`;
+      wrap.style.top = `${fit ? clampCenter(y, window.innerHeight) : y}px`;
     } else {
       wrap.style.left = `${window.innerWidth / 2}px`;
       wrap.style.top = `${window.innerHeight / 2}px`;
@@ -415,12 +523,51 @@
     return ui;
   }
 
+  function currentTheme() {
+    return THEMES[DARK_MQ.matches ? "dark" : "light"];
+  }
+
+  function startProgress(x, y) {
+    if (!SHOW_INDICATOR) return;
+
+    clearTimeout(hideTimer);
+    const { wrap, ring, confirm, progress, progressArc } = placeAt(x, y, true);
+    ring.style.opacity = "0";
+    confirm.style.opacity = "0";
+    progress.style.opacity = "1";
+    wrap.style.opacity = "1";
+    progressShown = true;
+
+    const duration = Math.max(HOLD_MS - PROGRESS_DELAY_MS, 1);
+    progress.animate(
+      [
+        { transform: "scale(.32)", opacity: 0.4 },
+        { transform: "scale(1)", opacity: 1 }
+      ],
+      { duration, easing: "ease-out", fill: "both" }
+    );
+    progressArc.animate(
+      [{ strokeDashoffset: `${ARC_LEN}px` }, { strokeDashoffset: "0px" }],
+      { duration, easing: "linear", fill: "both" }
+    );
+  }
+
+  function stopProgress() {
+    progressShown = false;
+    if (!ui) return;
+
+    ui.progress.getAnimations().forEach((a) => a.cancel());
+    ui.progressArc.getAnimations().forEach((a) => a.cancel());
+    ui.progress.style.opacity = "0";
+  }
+
   function showRing(x, y) {
     if (!SHOW_INDICATOR) return;
 
     clearTimeout(hideTimer);
 
-    const { wrap, ring, confirm } = placeAt(x, y);
+    const { wrap, ring, confirm, arrows } = placeAt(x, y, true);
+    stopProgress();
     ring.style.opacity = "1";
     // The link-open badge lives in the same wrap — hide it so it can't leak into a gesture.
     confirm.style.opacity = "0";
@@ -429,14 +576,33 @@
     activeDirection = undefined;
     highlight(null);
 
+    // "Click" into gesture mode: overshoot, an outline flash, arrows bursting outward.
     wrap.style.opacity = "1";
     wrap.animate(
       [
-        { opacity: 0, transform: "scale(.72)" },
+        { opacity: 0.4, transform: "scale(.6)" },
+        { opacity: 1, transform: "scale(1.08)", offset: 0.6 },
         { opacity: 1, transform: "scale(1)" }
       ],
-      { duration: 170, easing: "cubic-bezier(.2,.9,.3,1)" }
+      { duration: 230, easing: "ease-out" }
     );
+    const theme = currentTheme();
+    ring.animate(
+      [
+        {
+          borderColor: theme.accent,
+          boxShadow: `0 0 0 5px ${accentWithAlpha(theme.accent, 0.35)}, ${theme.ringShadow}`
+        },
+        { borderColor: theme.ringBorder, boxShadow: theme.ringShadow }
+      ],
+      { duration: 380, easing: "ease-out" }
+    );
+    for (const dir of Object.keys(arrows)) {
+      arrows[dir].animate(
+        [{ transform: arrowTransform(dir, 1, 0) }, { transform: arrowTransform(dir, 1, 1) }],
+        { duration: 260, easing: "cubic-bezier(.2,.9,.3,1)" }
+      );
+    }
   }
 
   function arrowTransform(dir, scale, spread) {
@@ -469,7 +635,7 @@
       const on = dir === axis;
       const pos = ICON_POS[dir];
       const scale = on ? 1 + 0.25 * progress : 1;
-      icon.style.opacity = on ? 0.34 + 0.66 * progress : 0.34;
+      icon.style.opacity = on ? ICON_IDLE_ALPHA + (1 - ICON_IDLE_ALPHA) * progress : ICON_IDLE_ALPHA;
       icon.style.transform =
         `translate(${pos.x}px,${pos.y}px) scale(${scale.toFixed(3)})`;
     }
@@ -483,11 +649,56 @@
     ui.cancelIcon.style.transform = `scale(${(1 - 0.45 * progress).toFixed(3)})`;
   }
 
+  function sectorGradient(axis) {
+    const from = { up: -45, right: 45, down: 135, left: 225 }[axis];
+    const c = accentWithAlpha(currentTheme().accent, 0.45);
+    return `conic-gradient(from ${from}deg, transparent 0deg, ${c} 30deg, ${c} 60deg, transparent 90deg, transparent 360deg)`;
+  }
+
+  function paintGlow(axis, progress) {
+    if (!ui.glow) return;
+    if (axis && axis !== ui.glowAxis) {
+      ui.glow.style.background = sectorGradient(axis);
+      ui.glowAxis = axis;
+    }
+    ui.glow.style.opacity = axis ? progress.toFixed(2) : "0";
+  }
+
+  // Beyond the threshold the dot slows down and saturates a little further out.
+  function squash(r) {
+    if (r <= GESTURE_MIN_PX) return r;
+    return GESTURE_MIN_PX + (PUCK_MAX_PX - GESTURE_MIN_PX) * (1 - Math.exp(-(r - GESTURE_MIN_PX) / 30));
+  }
+
+  function paintPointer(dx, dy, progress) {
+    const dist = Math.hypot(dx, dy);
+    const k = dist > 0 ? squash(dist) / dist : 0;
+    const px = (dx * k).toFixed(1);
+    const py = (dy * k).toFixed(1);
+    if (ui.puck) {
+      ui.puck.style.transform = `translate(${px}px,${py}px)`;
+      ui.puck.style.scale = progress >= 1 ? "1.5" : "1";
+    }
+    if (ui.guideLine) {
+      ui.guideLine.setAttribute("x2", px);
+      ui.guideLine.setAttribute("y2", py);
+    }
+  }
+
+  // One-shot bump when the cursor crosses the threshold: "you can release now".
+  function pulseThreshold(axis) {
+    const bump = { duration: 170, easing: "ease-out" };
+    ui.arrows[axis].animate([{ scale: 1 }, { scale: 1.35 }, { scale: 1 }], bump);
+    ui.icons[axis].animate([{ scale: 1 }, { scale: 1.4 }, { scale: 1 }], bump);
+    ui.ring.animate([{ scale: 1 }, { scale: 1.05 }, { scale: 1 }], bump);
+  }
+
   function updateVisual(dx, dy) {
     if (!SHOW_INDICATOR || !ui) return;
 
     const dist = Math.hypot(dx, dy);
     const axis = axisOf(dx, dy);
+    currentAxis = axis;
     const progress = Math.min(dist / GESTURE_MIN_PX, 1);
 
     if (dist > 0) {
@@ -509,6 +720,15 @@
     paintArrows(axis, progress);
     paintIcons(axis, progress);
     paintCancel(progress);
+    paintGlow(axis, progress);
+    paintPointer(dx, dy, progress);
+
+    if (progress >= 1) {
+      if (!crossed) pulseThreshold(axis);
+      crossed = true;
+    } else {
+      crossed = false;
+    }
     activeDirection = progress >= 1 ? axis : null;
   }
 
@@ -520,6 +740,8 @@
     paintArrows(direction, direction ? 1 : 0);
     paintIcons(direction, direction ? 1 : 0);
     paintCancel(direction ? 1 : 0);
+    paintGlow(direction, direction ? 1 : 0);
+    paintPointer(0, 0, 0);
   }
 
   function hideRing() {
@@ -530,12 +752,14 @@
     // The ring is already invisible, so reset its transform right away — otherwise
     // the next gesture would start by "flying in" from the previous position.
     ui.ring.style.transform = "";
+    stopProgress();
     currentTilt = 0;
     activeDirection = null;
+    crossed = false;
   }
 
-  // The gesture fired: the ring collapses.
-  function resolveRing() {
+  // The gesture fired: the ring collapses; the chosen icon plays its own exit.
+  function resolveRing(direction) {
     if (!SHOW_INDICATOR || !ui) return;
 
     const { wrap, ring } = ui;
@@ -550,9 +774,44 @@
       { duration: 220, easing: "ease-out" }
     );
     ring.style.opacity = "0";
+    if (ACTION_ANIM && direction) playActionFx(direction);
 
     clearTimeout(hideTimer);
     hideTimer = setTimeout(hideRing, 700);
+  }
+
+  // A detached copy of the chosen icon, so it can outlive the fading ring:
+  // the tab flies off, the cross collapses, the restore arrow spins back.
+  function playActionFx(direction) {
+    const holder = document.createElement("div");
+    holder.innerHTML = ICONS_MAP[direction];
+    const fx = holder.firstElementChild;
+    fx.style.cssText = "position:absolute;left:-10px;top:-10px";
+    ui.root.appendChild(fx);
+
+    const { x, y } = ICON_POS[direction];
+    const at = (dy, scale, rotate) =>
+      `translate(${x}px,${y + dy}px) rotate(${rotate}deg) scale(${scale})`;
+    let frames;
+    if (direction === "up" || direction === "down") {
+      const away = direction === "up" ? -54 : 54;
+      frames = [
+        { transform: at(0, 1.25, 0), opacity: 1 },
+        { transform: at(away, 1.6, 0), opacity: 0 }
+      ];
+    } else if (direction === "left") {
+      frames = [
+        { transform: at(0, 1.25, 0), opacity: 1 },
+        { transform: at(0, 0, 90), opacity: 0 }
+      ];
+    } else {
+      frames = [
+        { transform: at(0, 1.25, 0), opacity: 1 },
+        { transform: at(0, 1.5, -360), opacity: 0 }
+      ];
+    }
+    fx.animate(frames, { duration: 400, easing: "cubic-bezier(.3,.7,.4,1)" }).onfinish = () =>
+      fx.remove();
   }
 
   // "Open in new tab" badge — confirms a right-click on a link. A separate

@@ -18,6 +18,8 @@
   .box .inner { width: 700px; height: 400px; background: linear-gradient(135deg, #cde, #fed); padding: 8px; }
   textarea { width: 360px; height: 90px; }
   #slider { position: relative; width: 300px; height: 8px; background: #bbb; border-radius: 4px; margin: 14px 0; }
+  .backdrops { display: flex; gap: 8px; flex-wrap: wrap; }
+  .bd { width: 220px; height: 220px; border-radius: 8px; color: #fff; padding: 6px; font-size: 12px; }
   #thumb { position: absolute; top: -6px; left: 0; width: 20px; height: 20px; border-radius: 50%; background: #3367d6; cursor: grab; }
 </style>
 </head>
@@ -66,6 +68,15 @@ Line 8</textarea><br>
 <div class="zone">
   <video controls width="320" height="120"></video>
   <audio controls></audio>
+</div>
+
+<h2>Backdrops — <span class="must">ring and icons MUST stay readable</span></h2>
+<div class="zone backdrops">
+  <div class="bd" style="background:#fff;color:#000">white</div>
+  <div class="bd" style="background:#000">black</div>
+  <div class="bd" style="background:linear-gradient(90deg,#fff,#000)">hard gradient</div>
+  <div class="bd" style="background:repeating-conic-gradient(#e33 0 25%,#fd0 0 50%) 0 0/24px 24px">busy pattern</div>
+  <div class="bd" style="background:radial-gradient(circle at 30% 30%,#ffd54f,#1e88e5 60%,#0d1b4c)">photo-like</div>
 </div>
 
 <h2>Plain content again — <span class="must">ring MUST appear</span></h2>
