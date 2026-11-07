@@ -128,8 +128,9 @@ button held down, false positives are impossible by construction.
 
 [`test/manual.html`](test/manual.html) is a manual test page: it has scrollbars, form
 controls, sliders and media, a live "gesture ring shown/hidden" badge, and an event log.
-With the extension loaded, open it in Firefox (a `file://` URL works) and hold the left
-button in each zone.
+With the extension loaded, serve the repo (`python3 -m http.server 8765`), open
+`http://localhost:8765/test/manual.html` and hold the left button in each zone. A
+`file://` URL doesn't work: Firefox doesn't inject the content script there.
 
 ## Structure
 

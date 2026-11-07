@@ -89,7 +89,10 @@ Line 8</textarea><br>
 
   addEventListener("mousedown", (e) => write(describe(e)), true);
   addEventListener("mouseup", (e) => write(describe(e)), true);
-  addEventListener("scroll", (e) => write(`scroll <${e.target.localName || "document"}>`), true);
+  // Skip the log itself: writing to it scrolls it, which would fire another scroll event.
+  addEventListener("scroll", (e) => {
+    if (e.target !== log) write(`scroll <${e.target.localName || "document"}>`);
+  }, true);
 
   // The extension's indicator is a fixed div with the maximum z-index.
   setInterval(() => {

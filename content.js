@@ -84,6 +84,15 @@
     browser.runtime.sendMessage({ type, ...payload }).catch(() => {});
   }
 
+  let pressTarget = null;
+
+  // Only a scroll of the document or of the pressed element's ancestors means a scrollbar drag;
+  // unrelated scrolling elsewhere on the page must not cancel the gesture.
+  function onScroll(event) {
+    const t = event.target;
+    if (t === document || (t instanceof Node && pressTarget && t.contains(pressTarget))) reset();
+  }
+
   function reset() {
     clearTimeout(holdTimer);
     if (armed) hideRing();
@@ -95,6 +104,7 @@
     if (event.button !== LEFT_BUTTON || isEditable(event.target) || isOnScrollbar(event)) return;
 
     reset();
+    pressTarget = event.target;
     pending = { x: event.clientX, y: event.clientY };
     holdTimer = setTimeout(arm, HOLD_MS);
   }
@@ -573,7 +583,7 @@
   // A lost mouseup would leave a started gesture stuck.
   window.addEventListener("blur", reset);
   // Dragging a scrollbar thumb scrolls the page; drop the gesture if it slipped through.
-  window.addEventListener("scroll", reset, true);
+  window.addEventListener("scroll", onScroll, true);
 
   console.debug("SwipeTab active");
 })();
