@@ -93,7 +93,9 @@ Line 8</textarea><br>
 
   // The extension's indicator is a fixed div with the maximum z-index.
   setInterval(() => {
-    const ring = [...document.body.children].find((el) => el.style.zIndex === "2147483647");
+    // It may sit under <html> rather than <body>: the content script runs at document_start.
+    const candidates = [...document.documentElement.children, ...document.body.children];
+    const ring = candidates.find((el) => el.style.zIndex === "2147483647");
     const shown = Boolean(ring) && getComputedStyle(ring).opacity !== "0";
     status.textContent = "Gesture ring: " + (shown ? "SHOWN" : "hidden");
     status.classList.toggle("shown", shown);
