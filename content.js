@@ -114,8 +114,20 @@
 
     armed = pending;
     pending = null;
-    window.getSelection()?.removeAllRanges();
+    // Keep the selection when the hold started on it, so selected text can still be
+    // grabbed; clear it otherwise, since the gesture would leave it half-extended.
+    const selection = window.getSelection();
+    if (selection && !pointInSelection(armed.x, armed.y, selection)) selection.removeAllRanges();
     showRing(armed.x, armed.y);
+  }
+
+  function pointInSelection(x, y, selection) {
+    for (let i = 0; i < selection.rangeCount; i++) {
+      for (const r of selection.getRangeAt(i).getClientRects()) {
+        if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) return true;
+      }
+    }
+    return false;
   }
 
   // Dominant axis of movement — ignores the threshold, used only for highlighting.
@@ -291,9 +303,12 @@
 
   function buildUi() {
     const theme = THEMES[DARK_MQ.matches ? "dark" : "light"];
+    // The host stays a plain page-level element (position, opacity, z-index); the visuals
+    // live in a closed shadow root so site CSS (div {...}, svg {...}, * {...}) can't leak in.
     const wrap = document.createElement("div");
     wrap.style.cssText =
-      "position:fixed;left:0;top:0;width:0;height:0;z-index:2147483647;pointer-events:none;opacity:0;perspective:300px";
+      "all:initial;position:fixed;left:0;top:0;width:0;height:0;z-index:2147483647;pointer-events:none;opacity:0;perspective:300px;display:block";
+    const root = wrap.attachShadow({ mode: "closed" });
 
     const ring = document.createElement("div");
     ring.style.cssText = [
@@ -377,7 +392,7 @@
     ].join(";");
     confirm.innerHTML = dualToneIcon(ICON_PATHS.open);
 
-    wrap.append(ring, confirm);
+    root.append(ring, confirm);
     (document.body || document.documentElement).appendChild(wrap);
 
     return { wrap, ring, arrows, icons, cancelIcon, confirm };
