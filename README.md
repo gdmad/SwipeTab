@@ -19,15 +19,15 @@ Direction is read from the dominant axis, so you don't need to drag perfectly st
 An offset under 40 px doesn't count as a gesture, so a shaky hand is safe.
 
 Once the hold is registered, a ring with four arrows pops up at the cursor and tilts in
-3D toward the direction you drag, and a ray runs from its center to the cursor. The
-arrow and icon of the current direction grow as you approach the threshold; entering
-the sector at full distance gives a short pulse — releasing then fires the action, and
-the icon plays its own exit animation. To cancel, release at the ring center (the ⊘ icon
-there is fully visible whenever no direction is committed) **or in any diagonal between
-two directions**: the diagonals are cancel zones, and the center icon lights up while
-the cursor is in one, so you don't have to drag back to the middle. The ring is pulled
-inside the window when you press near an edge. Right-clicking a link pops up a small
-badge confirming it opened in a background tab.
+3D toward the direction you drag. The arrow and icon of the current direction grow as
+you approach the threshold; entering the sector at full distance gives a short pulse —
+releasing then fires the action, and the icon plays its own exit animation. To cancel,
+release at the ring center (the ⊘ icon there is fully visible whenever no direction is
+committed) **or in any diagonal between two directions**: the diagonals are cancel
+zones, and the center icon stays bright and large while the cursor is in one, so you
+don't have to drag back to the middle. The ring is pulled inside the window when you
+press near an edge. Right-clicking a link pops up a small badge confirming it opened in
+a background tab.
 
 Normal page behavior is preserved: clicks on links and buttons still work, a quick
 press-and-drag still selects text, and the gesture never triggers inside input fields.
@@ -95,7 +95,7 @@ in the "Config" block. Reload the extension in `about:debugging` after editing.
 - `CLAMP_TO_VIEWPORT` / `CLAMP_MARGIN_PX` — keep the ring inside the window.
 - `ACTION_HALF_DEG` — half-width of each action sector; what is left on the diagonals
   cancels (`30` → 60° actions, 30° cancel zones).
-- `RAY`, `ACTION_ANIM` — ring extras, each can be turned off on its own.
+- `ACTION_ANIM` — per-action exit animation instead of one shared pulse.
 - `DEBUG` — log the offset and recognized direction to the page console.
 
 To open links directly in the active tab instead of the background, see `FOCUS_NEW_TAB`

@@ -25,8 +25,6 @@
   // 90 - 2 * ACTION_HALF_DEG degrees wide) cancels the gesture on release.
   const ACTION_HALF_DEG = 30;
   // Ring extras; each one can be switched off on its own.
-  // A ray from the ring center to the cursor.
-  const RAY = true;
   // A distinct finishing animation per action instead of one shared pulse.
   const ACTION_ANIM = true;
   // ────────────────────────────────────────────────────────────────────────────
@@ -173,7 +171,7 @@
     }
 
     if (!armed) return;
-    updateVisual(event.clientX - armed.x, event.clientY - armed.y, event.clientX, event.clientY);
+    updateVisual(event.clientX - armed.x, event.clientY - armed.y);
   }
 
   function onMouseUp(event) {
@@ -319,7 +317,6 @@
   };
 
   const CENTER_ICON_SIZE = 40;
-  const RAY_START_PX = CENTER_ICON_SIZE / 2 + 4;
   const DARK_MQ = window.matchMedia("(prefers-color-scheme: dark)");
 
   let ui = null;
@@ -386,23 +383,6 @@
       icons[dir] = svg;
     }
 
-    // Soft disc behind the center icon: lights up when the cursor is in a diagonal
-    // cancel zone, so the icon reads as "selected".
-    const halo = document.createElement("div");
-    halo.style.cssText = [
-      "position:absolute",
-      "left:50%",
-      "top:50%",
-      `width:${CENTER_ICON_SIZE + 14}px`,
-      `height:${CENTER_ICON_SIZE + 14}px`,
-      `margin:-${(CENTER_ICON_SIZE + 14) / 2}px 0 0 -${(CENTER_ICON_SIZE + 14) / 2}px`,
-      "border-radius:50%",
-      `background:${accentWithAlpha(theme.accent, 0.22)}`,
-      "opacity:0",
-      "transition:opacity .15s"
-    ].join(";");
-    ring.appendChild(halo);
-
     const cancelWrap = document.createElement("div");
     cancelWrap.innerHTML = dualToneIcon(ICON_PATHS.cancel, CENTER_ICON_SIZE);
     const cancelIcon = cancelWrap.firstElementChild;
@@ -434,20 +414,10 @@
     ].join(";");
     confirm.innerHTML = dualToneIcon(ICON_PATHS.open);
 
-    // The ray lives outside the ring: the ring tilts and is only 124px wide, while the ray
-    // must reach the actual cursor. Two layers (dark under light) read on any background.
-    const ray = document.createElement("div");
-    ray.style.cssText =
-      "position:absolute;left:0;top:0;width:0;height:0;transform-origin:0 0;opacity:0;transition:opacity .1s";
-    ray.innerHTML =
-      '<div style="position:absolute;left:0;top:-2px;width:100%;height:4px;border-radius:2px;background:rgba(0,0,0,.5)"></div>' +
-      `<div style="position:absolute;left:0;top:-1px;width:100%;height:2px;border-radius:1px;background:${ICON_CORE}"></div>` +
-      `<div style="position:absolute;right:-4px;top:-4px;width:8px;height:8px;border-radius:50%;background:${ICON_CORE};box-shadow:0 0 0 1.5px rgba(0,0,0,.5)"></div>`;
-
-    root.append(ring, ray, confirm);
+    root.append(ring, confirm);
     (document.body || document.documentElement).appendChild(wrap);
 
-    return { wrap, root, ring, arrows, icons, cancelIcon, halo, ray, confirm };
+    return { wrap, root, ring, arrows, icons, cancelIcon, confirm };
   }
 
   function ensureUi() {
@@ -566,29 +536,6 @@
     const scale = inZone ? 1.15 : 1 - 0.45 * progress;
     ui.cancelIcon.style.opacity = opacity.toFixed(2);
     ui.cancelIcon.style.transform = `scale(${scale.toFixed(3)})`;
-    ui.halo.style.opacity = inZone ? 1 : 0;
-  }
-
-  // The ray follows the actual cursor; muted until an action sector is reached.
-  function paintRay(clientX, clientY, progress, diagonal) {
-    if (!RAY) return;
-
-    const x = clientX - parseFloat(ui.wrap.style.left);
-    const y = clientY - parseFloat(ui.wrap.style.top);
-    const length = Math.hypot(x, y) - RAY_START_PX;
-    if (length < 6) {
-      hideRay();
-      return;
-    }
-    ui.ray.style.width = `${length.toFixed(1)}px`;
-    ui.ray.style.transform = `rotate(${Math.atan2(y, x).toFixed(4)}rad) translateX(${RAY_START_PX}px)`;
-    ui.ray.style.opacity = diagonal ? 0.45 : (0.55 + 0.45 * progress).toFixed(2);
-  }
-
-  function hideRay() {
-    if (!ui?.ray) return;
-    ui.ray.style.opacity = "0";
-    ui.ray.style.width = "0";
   }
 
   // One-shot emphasis when the cursor enters an action sector at full distance:
@@ -619,7 +566,7 @@
     ).onfinish = () => wave.remove();
   }
 
-  function updateVisual(dx, dy, clientX, clientY) {
+  function updateVisual(dx, dy) {
     if (!SHOW_INDICATOR || !ui) return;
 
     const dist = Math.hypot(dx, dy);
@@ -647,7 +594,6 @@
     paintArrows(axis, progress);
     paintIcons(axis, progress);
     paintCancel(progress, inZone);
-    paintRay(clientX, clientY, progress, diagonal);
 
     const next = progress >= 1 ? axis : null;
     if (next && next !== activeDirection) pulseEntry(next);
@@ -662,7 +608,6 @@
     paintArrows(direction, direction ? 1 : 0);
     paintIcons(direction, direction ? 1 : 0);
     paintCancel(direction ? 1 : 0, false);
-    hideRay();
   }
 
   function hideRing() {
@@ -675,7 +620,6 @@
     ui.ring.style.transform = "";
     currentTilt = 0;
     activeDirection = null;
-    hideRay();
   }
 
   // The gesture fired: the ring collapses; the chosen icon plays its own exit.
