@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>SwipeTab manual test</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  body { font: 15px/1.5 -apple-system, system-ui, sans-serif; margin: 0; padding: 16px 40px 400px 16px; width: 1400px; }
+  h1 { margin: 0 0 4px; font-size: 20px; }
+  h2 { margin: 24px 0 6px; font-size: 15px; }
+  .must { color: #0a7d2c; font-weight: 600; }
+  .mustnot { color: #b3261e; font-weight: 600; }
+  .zone { border: 1px solid #bbb; border-radius: 8px; padding: 12px; margin-bottom: 8px; background: #fafafa; }
+  #status { position: fixed; top: 8px; right: 40px; z-index: 10; padding: 6px 12px; border-radius: 6px; font-weight: 700; background: #ddd; }
+  #status.shown { background: #ffd54f; }
+  #log { position: fixed; bottom: 8px; left: 8px; z-index: 10; width: 560px; height: 150px; overflow: auto; margin: 0; padding: 6px; background: #111; color: #9f9; font: 11px/1.4 ui-monospace, monospace; border-radius: 6px; }
+  .box { width: 360px; height: 120px; overflow: auto; border: 1px solid #888; }
+  .box .inner { width: 700px; height: 400px; background: linear-gradient(135deg, #cde, #fed); padding: 8px; }
+  textarea { width: 360px; height: 90px; }
+  #slider { position: relative; width: 300px; height: 8px; background: #bbb; border-radius: 4px; margin: 14px 0; }
+  #thumb { position: absolute; top: -6px; left: 0; width: 20px; height: 20px; border-radius: 50%; background: #3367d6; cursor: grab; }
+</style>
+</head>
+<body>
+<div id="status">Gesture ring: hidden</div>
+<pre id="log"></pre>
+
+<h1>SwipeTab manual test</h1>
+<p>Hold the left button for about half a second in each zone without moving.
+The badge (top right) must show what is stated next to the zone. This page is
+taller and wider than the window on purpose, so it has both window scrollbars.</p>
+
+<h2>Plain content — <span class="must">ring MUST appear</span></h2>
+<div class="zone">
+  Some text and <a href="#plain">an in-page link</a>. Hold here, then drag up / down / left / right.
+</div>
+
+<h2>Window scrollbars (right and bottom edge) — <span class="mustnot">no ring</span></h2>
+<div class="zone">Press and hold on the page's own vertical and horizontal scrollbar, also while dragging the thumb.</div>
+
+<h2>Scrollable box — scrollbars <span class="mustnot">no ring</span>, content <span class="must">ring</span></h2>
+<div class="box"><div class="inner">Content inside a scrollable box.</div></div>
+
+<h2>Form controls — <span class="mustnot">no ring</span></h2>
+<div class="zone">
+  <textarea>Long text. Long text. Long text. Long text. Long text. Long text. Long text. Long text.
+Line 2
+Line 3
+Line 4
+Line 5
+Line 6
+Line 7
+Line 8</textarea><br>
+  <input type="text" value="text input"> <select><option>select</option><option>two</option></select>
+  <span contenteditable style="border:1px solid #888;padding:2px 6px">contenteditable</span>
+</div>
+
+<h2>Sliders and indicators — <span class="mustnot">no ring</span></h2>
+<div class="zone">
+  <input type="range" min="0" max="100" value="40"><br>
+  <progress value="40" max="100"></progress> <meter value="0.6"></meter>
+  <div id="slider" role="slider" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><div id="thumb"></div></div>
+</div>
+
+<h2>Media with controls — <span class="mustnot">no ring</span></h2>
+<div class="zone">
+  <video controls width="320" height="120"></video>
+  <audio controls></audio>
+</div>
+
+<h2>Plain content again — <span class="must">ring MUST appear</span></h2>
+<div class="zone" style="height: 900px">Tall filler so the window scrolls. Gestures work here.</div>
+
+<script>
+  const log = document.getElementById("log");
+  const status = document.getElementById("status");
+
+  function write(line) {
+    log.textContent += line + "\n";
+    log.scrollTop = log.scrollHeight;
+  }
+
+  function describe(e) {
+    const t = e.target;
+    const root = document.documentElement;
+    return `${e.type} <${t.localName || t.nodeName}> x=${e.clientX} y=${e.clientY}` +
+      ` inner=${innerWidth}x${innerHeight} client=${root.clientWidth}x${root.clientHeight}`;
+  }
+
+  addEventListener("mousedown", (e) => write(describe(e)), true);
+  addEventListener("mouseup", (e) => write(describe(e)), true);
+  addEventListener("scroll", (e) => write(`scroll <${e.target.localName || "document"}>`), true);
+
+  // The extension's indicator is a fixed div with the maximum z-index.
+  setInterval(() => {
+    const ring = [...document.body.children].find((el) => el.style.zIndex === "2147483647");
+    const shown = Boolean(ring) && getComputedStyle(ring).opacity !== "0";
+    status.textContent = "Gesture ring: " + (shown ? "SHOWN" : "hidden");
+    status.classList.toggle("shown", shown);
+  }, 100);
+
+  // Custom slider.
+  const slider = document.getElementById("slider");
+  const thumb = document.getElementById("thumb");
+  slider.addEventListener("mousedown", (e) => {
+    const move = (ev) => {
+      const r = slider.getBoundingClientRect();
+      const x = Math.max(0, Math.min(ev.clientX - r.left, r.width));
+      thumb.style.left = x - 10 + "px";
+    };
+    move(e);
+    addEventListener("mousemove", move);
+    addEventListener("mouseup", () => removeEventListener("mousemove", move), { once: true });
+  });
+</script>
+</body>
+</html>

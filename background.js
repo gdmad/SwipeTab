@@ -26,7 +26,14 @@ async function switchTab(sender, dir) {
 }
 
 async function closeTab(sender) {
-  await browser.tabs.remove(sender.tab.id);
+  const { id, index, windowId } = sender.tab;
+
+  const left = (await browser.tabs.query({ windowId }))
+    .filter((tab) => !tab.hidden && tab.index < index)
+    .sort((a, b) => b.index - a.index)[0];
+
+  if (left) await browser.tabs.update(left.id, { active: true });
+  await browser.tabs.remove(id);
 }
 
 async function undoCloseTab() {

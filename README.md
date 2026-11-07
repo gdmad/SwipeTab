@@ -11,7 +11,7 @@ is what tells a gesture apart from text selection.
 |---|---|
 | Hold and drag up | Previous tab (wraps around) |
 | Hold and drag down | Next tab (wraps around) |
-| Hold and drag left | Close the current tab |
+| Hold and drag left | Close the current tab and switch to the tab on its left |
 | Hold and drag right | Restore the last closed tab |
 | Right-click a link (two-finger click on a trackpad) | Open the link in a new background tab |
 
@@ -118,11 +118,24 @@ button held down, false positives are impossible by construction.
   `addons.mozilla.org`.
 - A gesture started in one frame and finished in another isn't recognized.
 - Dragging elements after the hold doesn't work — that gesture is already taken.
+- Gestures are disabled on form fields, sliders (`role="slider"`, `<progress>`,
+  `<meter>`) and on the whole of `<video controls>` / `<audio controls>`: native player
+  controls can't be told apart from the video itself.
+- Scrollbars are detected as a 20 px strip along the edge of the window and of every
+  scrollable box, so gestures don't start within that strip either.
+
+## Development
+
+[`test/manual.html`](test/manual.html) is a manual test page: it has scrollbars, form
+controls, sliders and media, a live "gesture ring shown/hidden" badge, and an event log.
+With the extension loaded, open it in Firefox (a `file://` URL works) and hold the left
+button in each zone.
 
 ## Structure
 
 ```
-manifest.json   MV2, content script on all pages
-content.js      gesture recognition and the indicator UI
-background.js   tab operations via the tabs API
+manifest.json     MV2, content script on all pages
+content.js        gesture recognition and the indicator UI
+background.js     tab operations via the tabs API
+test/manual.html  manual test page
 ```

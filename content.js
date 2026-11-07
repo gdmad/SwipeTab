@@ -20,7 +20,13 @@
   // ────────────────────────────────────────────────────────────────────────────
 
   const LEFT_BUTTON = 0;
-  const EDITABLE = "input, textarea, select, [contenteditable]";
+  // Wide enough for a classic scrollbar (15-17px) and an overlay one.
+  const SCROLLBAR_PX = 20;
+  // Elements that handle drags themselves.
+  const EDITABLE =
+    "input, textarea, select, [contenteditable], " +
+    "[role=slider], [role=scrollbar], [role=progressbar], " +
+    "video[controls], audio[controls], progress, meter";
 
   let pending = null;
   let armed = null;
@@ -43,6 +49,37 @@
     return Boolean(el?.closest?.(EDITABLE));
   }
 
+  // Overlay scrollbars take no layout space and Firefox doesn't expose them to
+  // content, so scrollbars are detected by a fixed-width strip along the edge of
+  // every scrollable box instead of by geometry.
+  function inScrollEdge(event, box, el) {
+    const style = el === document.documentElement ? null : getComputedStyle(el);
+    const scrolls = (overflow) => !style || /auto|scroll|overlay/.test(overflow);
+
+    const vertical =
+      el.scrollHeight > el.clientHeight &&
+      scrolls(style?.overflowY) &&
+      event.clientX >= box.right - SCROLLBAR_PX;
+    const horizontal =
+      el.scrollWidth > el.clientWidth &&
+      scrolls(style?.overflowX) &&
+      event.clientY >= box.bottom - SCROLLBAR_PX;
+
+    return vertical || horizontal;
+  }
+
+  function isOnScrollbar(event) {
+    const root = document.documentElement;
+    const viewport = { right: window.innerWidth, bottom: window.innerHeight };
+    if (inScrollEdge(event, viewport, root)) return true;
+
+    let el = event.target instanceof Element ? event.target : null;
+    for (; el && el !== root && el !== document.body; el = el.parentElement) {
+      if (inScrollEdge(event, el.getBoundingClientRect(), el)) return true;
+    }
+    return false;
+  }
+
   function send(type, payload) {
     browser.runtime.sendMessage({ type, ...payload }).catch(() => {});
   }
@@ -55,7 +92,7 @@
   }
 
   function onMouseDown(event) {
-    if (event.button !== LEFT_BUTTON || isEditable(event.target)) return;
+    if (event.button !== LEFT_BUTTON || isEditable(event.target) || isOnScrollbar(event)) return;
 
     reset();
     pending = { x: event.clientX, y: event.clientY };
@@ -535,6 +572,8 @@
   window.addEventListener("click", onClick, true);
   // A lost mouseup would leave a started gesture stuck.
   window.addEventListener("blur", reset);
+  // Dragging a scrollbar thumb scrolls the page; drop the gesture if it slipped through.
+  window.addEventListener("scroll", reset, true);
 
   console.debug("SwipeTab active");
 })();
