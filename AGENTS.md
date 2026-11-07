@@ -23,7 +23,7 @@ zip -r -FS swipetab.xpi manifest.json content.js background.js icon.svg
 ```
 
 ## Architecture
-- **`content.js`** (~830 LOC, IIFE) — the core. Left-button hold-then-swipe gesture recogniser with a visual bubble indicator.
+- **`content.js`** (~780 LOC, IIFE) — the core. Left-button hold-then-swipe gesture recogniser with a visual bubble indicator.
   - Constants block at the top: timing thresholds, dimensions, debug flag, theme palettes, icon definitions.
   - `THEMES.dark` / `THEMES.light` — ring palette selected by `prefers-color-scheme` media query.
   - `buildUi()` constructs a fixed-position bubble (ring + arrows + action icons) appended to `document.body`.
@@ -37,7 +37,7 @@ zip -r -FS swipetab.xpi manifest.json content.js background.js icon.svg
 - AVOID: trailing semicolons on `function` declarations; REQUIRE: semicolons on statement expressions and `const`/`let` assignments.
 - `(IIFE)` closure: `(() => { ... })();`.
 - Constants grouped at file top under a `// ── Config ──` block.
-- `content.js` is the fat file (~830 LOC); `background.js` is thin (~60 LOC). Keep this ratio — content logic stays in `content.js`.
+- `content.js` is the fat file (~780 LOC); `background.js` is thin (~60 LOC). Keep this ratio — content logic stays in `content.js`.
 - Bubble theming: ring + arrows use `THEMES[DARK_MQ.matches ? "dark" : "light"]` from `window.matchMedia("(prefers-color-scheme: dark)")`. Icons are THEME-INDEPENDENT (dual-tone — `ICON_OUTLINE`/`ICON_CORE` in `content.js`).
 - Tweakables are constants at the top of `content.js`, not a settings page.
 

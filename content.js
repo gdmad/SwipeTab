@@ -25,8 +25,8 @@
   // 90 - 2 * ACTION_HALF_DEG degrees wide) cancels the gesture on release.
   const ACTION_HALF_DEG = 30;
   // Ring extras; each one can be switched off on its own.
-  // A soft glow over the sector of the current direction.
-  const SECTOR_GLOW = true;
+  // A ray from the ring center to the cursor.
+  const RAY = true;
   // A distinct finishing animation per action instead of one shared pulse.
   const ACTION_ANIM = true;
   // ────────────────────────────────────────────────────────────────────────────
@@ -173,7 +173,7 @@
     }
 
     if (!armed) return;
-    updateVisual(event.clientX - armed.x, event.clientY - armed.y);
+    updateVisual(event.clientX - armed.x, event.clientY - armed.y, event.clientX, event.clientY);
   }
 
   function onMouseUp(event) {
@@ -318,56 +318,8 @@
     left:  { x: -82, y: 0 }
   };
 
-  // Small cancel marks on the diagonals, outside the ring like the action icons.
-  const MARK_SIZE = 14;
-  const MARKS = [
-    { sx: -1, sy: -1 },
-    { sx: 1, sy: -1 },
-    { sx: 1, sy: 1 },
-    { sx: -1, sy: 1 }
-  ];
-  const MARK_OFFSET = 58;
   const CENTER_ICON_SIZE = 40;
-  const SECTOR_ANGLE = { up: -90, right: 0, down: 90, left: 180 };
-  const SECTOR_INNER = 26;
-  const SECTOR_OUTER = 60;
-
-  const polar = (r, deg) => {
-    const a = (deg * Math.PI) / 180;
-    return `${(r * Math.cos(a)).toFixed(2)} ${(r * Math.sin(a)).toFixed(2)}`;
-  };
-
-  // A ring sector: a gradient fill fading in toward the rim plus a bright rim arc.
-  function sectorSvg(theme) {
-    const sectors = Object.entries(SECTOR_ANGLE)
-      .map(([dir, center]) => {
-        const a0 = center - ACTION_HALF_DEG;
-        const a1 = center + ACTION_HALF_DEG;
-        const body =
-          `M${polar(SECTOR_INNER, a0)} L${polar(SECTOR_OUTER, a0)} ` +
-          `A${SECTOR_OUTER} ${SECTOR_OUTER} 0 0 1 ${polar(SECTOR_OUTER, a1)} ` +
-          `L${polar(SECTOR_INNER, a1)} A${SECTOR_INNER} ${SECTOR_INNER} 0 0 0 ${polar(SECTOR_INNER, a0)}Z`;
-        const rim =
-          `M${polar(SECTOR_OUTER - 1.5, a0 + 3)} ` +
-          `A${SECTOR_OUTER - 1.5} ${SECTOR_OUTER - 1.5} 0 0 1 ${polar(SECTOR_OUTER - 1.5, a1 - 3)}`;
-        return (
-          `<g data-dir="${dir}" style="opacity:0;transition:opacity .1s">` +
-          `<path d="${body}" fill="url(#sector-fill)"/>` +
-          `<path d="${rim}" fill="none" stroke="${theme.accent}" stroke-width="2.5" stroke-linecap="round"/>` +
-          "</g>"
-        );
-      })
-      .join("");
-    return (
-      '<svg viewBox="-62 -62 124 124" width="124" height="124" style="position:absolute;left:0;top:0">' +
-      '<defs><radialGradient id="sector-fill" cx="0" cy="0" r="60" gradientUnits="userSpaceOnUse">' +
-      `<stop offset=".4" stop-color="${theme.accent}" stop-opacity="0"/>` +
-      `<stop offset="1" stop-color="${theme.accent}" stop-opacity=".4"/>` +
-      "</radialGradient></defs>" +
-      sectors +
-      "</svg>"
-    );
-  }
+  const RAY_START_PX = CENTER_ICON_SIZE / 2 + 4;
   const DARK_MQ = window.matchMedia("(prefers-color-scheme: dark)");
 
   let ui = null;
@@ -396,16 +348,6 @@
       `box-shadow:${theme.ringShadow}`,
       "transition:transform .08s linear"
     ].join(";");
-
-    let glows = null;
-    if (SECTOR_GLOW) {
-      const holder = document.createElement("div");
-      holder.innerHTML = sectorSvg(theme);
-      const svg = holder.firstElementChild;
-      ring.appendChild(svg);
-      glows = {};
-      for (const g of svg.querySelectorAll("g[data-dir]")) glows[g.dataset.dir] = g;
-    }
 
     const arrows = {};
     for (const dir of Object.keys(ARROWS)) {
@@ -444,6 +386,23 @@
       icons[dir] = svg;
     }
 
+    // Soft disc behind the center icon: lights up when the cursor is in a diagonal
+    // cancel zone, so the icon reads as "selected".
+    const halo = document.createElement("div");
+    halo.style.cssText = [
+      "position:absolute",
+      "left:50%",
+      "top:50%",
+      `width:${CENTER_ICON_SIZE + 14}px`,
+      `height:${CENTER_ICON_SIZE + 14}px`,
+      `margin:-${(CENTER_ICON_SIZE + 14) / 2}px 0 0 -${(CENTER_ICON_SIZE + 14) / 2}px`,
+      "border-radius:50%",
+      `background:${accentWithAlpha(theme.accent, 0.22)}`,
+      "opacity:0",
+      "transition:opacity .15s"
+    ].join(";");
+    ring.appendChild(halo);
+
     const cancelWrap = document.createElement("div");
     cancelWrap.innerHTML = dualToneIcon(ICON_PATHS.cancel, CENTER_ICON_SIZE);
     const cancelIcon = cancelWrap.firstElementChild;
@@ -456,22 +415,6 @@
       "transition:opacity .1s,transform .1s"
     ].join(";");
     ring.appendChild(cancelIcon);
-
-    const marks = MARKS.map(({ sx, sy }) => {
-      const holder = document.createElement("div");
-      holder.innerHTML = dualToneIcon(ICON_PATHS.cancel, MARK_SIZE);
-      const el = holder.firstElementChild;
-      el.style.cssText = [
-        "position:absolute",
-        "left:50%",
-        "top:50%",
-        `margin-left:-${MARK_SIZE / 2}px`,
-        `margin-top:-${MARK_SIZE / 2}px`,
-        "transition:opacity .1s,transform .1s"
-      ].join(";");
-      ring.appendChild(el);
-      return { el, sx, sy };
-    });
 
     // Link-open confirmation badge — a separate element from the gesture ring
     // (smaller, instant), so it doesn't collide with the ring's own animation.
@@ -491,10 +434,20 @@
     ].join(";");
     confirm.innerHTML = dualToneIcon(ICON_PATHS.open);
 
-    root.append(ring, confirm);
+    // The ray lives outside the ring: the ring tilts and is only 124px wide, while the ray
+    // must reach the actual cursor. Two layers (dark under light) read on any background.
+    const ray = document.createElement("div");
+    ray.style.cssText =
+      "position:absolute;left:0;top:0;width:0;height:0;transform-origin:0 0;opacity:0;transition:opacity .1s";
+    ray.innerHTML =
+      '<div style="position:absolute;left:0;top:-2px;width:100%;height:4px;border-radius:2px;background:rgba(0,0,0,.5)"></div>' +
+      `<div style="position:absolute;left:0;top:-1px;width:100%;height:2px;border-radius:1px;background:${ICON_CORE}"></div>` +
+      `<div style="position:absolute;right:-4px;top:-4px;width:8px;height:8px;border-radius:50%;background:${ICON_CORE};box-shadow:0 0 0 1.5px rgba(0,0,0,.5)"></div>`;
+
+    root.append(ring, ray, confirm);
     (document.body || document.documentElement).appendChild(wrap);
 
-    return { wrap, root, ring, arrows, icons, cancelIcon, marks, glows, confirm };
+    return { wrap, root, ring, arrows, icons, cancelIcon, halo, ray, confirm };
   }
 
   function ensureUi() {
@@ -613,23 +566,29 @@
     const scale = inZone ? 1.15 : 1 - 0.45 * progress;
     ui.cancelIcon.style.opacity = opacity.toFixed(2);
     ui.cancelIcon.style.transform = `scale(${scale.toFixed(3)})`;
+    ui.halo.style.opacity = inZone ? 1 : 0;
   }
 
-  // The cancel mark in the quadrant the cursor is in lights up; the others stay dim.
-  function paintMarks(lit) {
-    for (const { el, sx, sy } of ui?.marks ?? []) {
-      const on = lit && lit.sx === sx && lit.sy === sy;
-      el.style.opacity = on ? 1 : 0.3;
-      el.style.transform =
-        `translate(${sx * MARK_OFFSET}px,${sy * MARK_OFFSET}px) scale(${on ? 1.3 : 0.9})`;
+  // The ray follows the actual cursor; muted until an action sector is reached.
+  function paintRay(clientX, clientY, progress, diagonal) {
+    if (!RAY) return;
+
+    const x = clientX - parseFloat(ui.wrap.style.left);
+    const y = clientY - parseFloat(ui.wrap.style.top);
+    const length = Math.hypot(x, y) - RAY_START_PX;
+    if (length < 6) {
+      hideRay();
+      return;
     }
+    ui.ray.style.width = `${length.toFixed(1)}px`;
+    ui.ray.style.transform = `rotate(${Math.atan2(y, x).toFixed(4)}rad) translateX(${RAY_START_PX}px)`;
+    ui.ray.style.opacity = diagonal ? 0.45 : (0.55 + 0.45 * progress).toFixed(2);
   }
 
-  function paintGlow(axis, progress) {
-    if (!ui.glows) return;
-    for (const [dir, g] of Object.entries(ui.glows)) {
-      g.style.opacity = dir === axis ? progress.toFixed(2) : "0";
-    }
+  function hideRay() {
+    if (!ui?.ray) return;
+    ui.ray.style.opacity = "0";
+    ui.ray.style.width = "0";
   }
 
   // One-shot emphasis when the cursor enters an action sector at full distance:
@@ -660,7 +619,7 @@
     ).onfinish = () => wave.remove();
   }
 
-  function updateVisual(dx, dy) {
+  function updateVisual(dx, dy, clientX, clientY) {
     if (!SHOW_INDICATOR || !ui) return;
 
     const dist = Math.hypot(dx, dy);
@@ -688,8 +647,7 @@
     paintArrows(axis, progress);
     paintIcons(axis, progress);
     paintCancel(progress, inZone);
-    paintGlow(axis, progress);
-    paintMarks(inZone ? { sx: Math.sign(dx), sy: Math.sign(dy) } : null);
+    paintRay(clientX, clientY, progress, diagonal);
 
     const next = progress >= 1 ? axis : null;
     if (next && next !== activeDirection) pulseEntry(next);
@@ -704,8 +662,7 @@
     paintArrows(direction, direction ? 1 : 0);
     paintIcons(direction, direction ? 1 : 0);
     paintCancel(direction ? 1 : 0, false);
-    paintGlow(direction, direction ? 1 : 0);
-    paintMarks(null);
+    hideRay();
   }
 
   function hideRing() {
@@ -718,7 +675,7 @@
     ui.ring.style.transform = "";
     currentTilt = 0;
     activeDirection = null;
-    paintMarks(null);
+    hideRay();
   }
 
   // The gesture fired: the ring collapses; the chosen icon plays its own exit.
